@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sre-demo
+  namespace: sre-lab
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - sre-lab
+  selector:
+    matchLabels:
+      app: sre-demo
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

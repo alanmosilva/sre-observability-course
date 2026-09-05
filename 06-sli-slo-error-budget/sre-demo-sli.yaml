@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sre-demo-sli
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: sre-demo-sli
+      interval: 30s
+      rules:
+        - record: sre_demo:http_requests:rate5m
+          expr: sum(rate(sre_demo_http_requests_total[5m]))
+
+        - record: sre_demo:http_5xx:rate5m
+          expr: sum(rate(sre_demo_http_requests_total{status=~"5.."}[5m]))
+
+        - record: sre_demo:http_error_ratio:rate5m
+          expr: |
+            sum(rate(sre_demo_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(sre_demo_http_requests_total[5m])), 0.000001)
+
+        - record: sre_demo:http_availability:ratio5m
+          expr: |
+            1 -
+            (
+              sum(rate(sre_demo_http_requests_total{status=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(sre_demo_http_requests_total[5m])), 0.000001)
+            )
+
+        - record: sre_demo:http_latency_under_500ms:ratio5m
+          expr: |
+            sum(rate(sre_demo_http_request_duration_seconds_bucket{le="0.5"}[5m]))
+            /
+            clamp_min(sum(rate(sre_demo_http_request_duration_seconds_count[5m])), 0.000001)
+
+        - record: sre_demo:http_latency_p95_seconds:5m
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(sre_demo_http_request_duration_seconds_bucket[5m])
+              )
+            )

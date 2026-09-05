@@ -1,0 +1,33 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: sre-demo-email
+  namespace: sre-lab
+spec:
+  route:
+    receiver: sre-email
+    groupBy:
+      - alertname
+      - severity
+    groupWait: 10s
+    groupInterval: 5m
+    repeatInterval: 4h
+    matchers:
+      - name: service
+        value: sre-demo
+        matchType: "="
+      - name: severity
+        value: critical
+        matchType: "="
+  receivers:
+    - name: sre-email
+      emailConfigs:
+        - to: "<ALERT_DESTINATION_EMAIL>"
+          from: "<SES_VERIFIED_FROM_EMAIL>"
+          smarthost: "email-smtp.sa-east-1.amazonaws.com:587"
+          authUsername: "<SES_SMTP_USERNAME>"
+          authPassword:
+            name: aws-ses-smtp
+            key: password
+          requireTLS: true
+          sendResolved: true

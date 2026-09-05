@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loadgen
+  namespace: sre-lab
+spec:
+  restartPolicy: Always
+  containers:
+    - name: curl
+      image: curlimages/curl:latest
+      command: ["sh", "-c", "sleep infinity"]

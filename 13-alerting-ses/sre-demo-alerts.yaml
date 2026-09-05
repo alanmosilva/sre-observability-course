@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sre-demo-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: sre-demo-availability-alerts
+      interval: 30s
+      rules:
+        - alert: SREDemoAvailabilityFastBurn
+          expr: |
+            (
+              (
+                sum(rate(sre_demo_http_requests_total{status=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(sre_demo_http_requests_total[5m])), 0.000001)
+              )
+              / 0.001
+            ) > 14.4
+            and
+            (
+              (
+                sum(rate(sre_demo_http_requests_total{status=~"5.."}[1h]))
+                /
+                clamp_min(sum(rate(sre_demo_http_requests_total[1h])), 0.000001)
+              )
+              / 0.001
+            ) > 14.4
+          for: 2m
+          labels:
+            severity: critical
+            service: sre-demo
+            team: sre
+            slo: availability
+            namespace: sre-lab
+          annotations:
+            summary: "sre-demo is rapidly burning its availability error budget"
+            description: "Availability error budget burn rate is above 14.4x on both the 5m and 1h windows."
+            runbook: "runbooks/sre-demo-availability.md"

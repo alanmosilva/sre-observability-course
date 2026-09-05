@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: incident-generator
+  namespace: sre-lab
+spec:
+  restartPolicy: Never
+  containers:
+    - name: generator
+      image: curlimages/curl:latest
+      command:
+        - sh
+        - -c
+        - |
+          BASE=http://sre-demo.sre-lab.svc.cluster.local
+          for w in 1 2 3 4 5; do
+            (
+              while true; do
+                curl -s "$BASE/error" >/dev/null
+                sleep 0.2
+              done
+            ) &
+          done
+          wait

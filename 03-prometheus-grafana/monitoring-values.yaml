@@ -1,0 +1,94 @@
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  persistence:
+    enabled: true
+    type: sts
+    storageClassName: local-path
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+
+  sidecar:
+    datasources:
+      enabled: false
+
+  additionalDataSources:
+    - name: Prometheus
+      uid: prometheus
+      type: prometheus
+      access: proxy
+      url: http://monitoring-kube-prometheus-prometheus.monitoring:9090/
+      isDefault: true
+      editable: false
+      jsonData:
+        httpMethod: POST
+        timeInterval: 15s
+        exemplarTraceIdDestinations:
+          - datasourceUid: tempo
+            name: trace_id
+            urlDisplayLabel: View Trace
+
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.loki.svc.cluster.local
+      editable: false
+      jsonData:
+        derivedFields:
+          - name: TraceID
+            matcherRegex: '"trace_id":"([0-9a-fA-F]{32})"'
+            datasourceUid: tempo
+            url: '$${__value.raw}'
+            urlDisplayLabel: View Trace
+
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.tempo.svc.cluster.local:3200
+      editable: false
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: '-2s'
+          spanEndTimeShift: '2s'
+          tags:
+            - key: k8s.namespace.name
+              value: namespace
+          filterByTraceID: true
+          filterBySpanID: false
+          customQuery: false
+        nodeGraph:
+          enabled: true
+
+    - name: Alertmanager
+      uid: alertmanager
+      type: alertmanager
+      access: proxy
+      url: http://monitoring-kube-prometheus-alertmanager.monitoring:9093/
+      editable: false
+      jsonData:
+        implementation: prometheus
+
+prometheus:
+  prometheusSpec:
+    enableFeatures:
+      - exemplar-storage
+
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector:
+      matchLabels:
+        release: monitoring
+
+    ruleNamespaceSelector: {}
+    ruleSelector:
+      matchLabels:
+        release: monitoring
+
+alertmanager:
+  enabled: true
