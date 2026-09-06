@@ -141,7 +141,42 @@ Esse passo executa conceitualmente:
 kubeadm init --pod-network-cidr=10.244.0.0/16
 ```
 
-Depois instala Calico e configura `~/.kube/config` para o usuário que chamou `sudo`.
+Depois instala Calico via tigera-operator e configura `~/.kube/config` para o usuário que chamou `sudo`.
+
+### Duas variáveis que talvez você precise
+
+**`SINGLE_NODE`** — padrão `true`, que **remove o taint do control-plane**.
+
+Sem isso, num cluster de nó único todo pod fica `Pending` com `node(s) had untolerated taint(s)`, porque o control-plane recusa workloads. Se você **vai adicionar workers** e prefere manter o control-plane dedicado:
+
+```bash
+sudo SINGLE_NODE=false ./k8s-lab-install-course.sh master
+```
+
+Dá para reverter depois, sem reinstalar:
+
+```bash
+# remover o taint
+kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
+
+# recolocar
+kubectl taint nodes --all node-role.kubernetes.io/control-plane=:NoSchedule
+```
+
+**`APISERVER_ADVERTISE_ADDRESS`** — vazio por padrão; o kubeadm escolhe pela rota default, o que serve para a maioria dos servidores.
+
+Defina se a máquina tem **várias interfaces** e o kubeadm escolher a errada — sintoma típico é o worker não conseguir se juntar, ou o `kubeadm join` apontar para um IP inacessível:
+
+```bash
+sudo APISERVER_ADVERTISE_ADDRESS=192.168.90.17 \
+  ./k8s-lab-install-course.sh master
+```
+
+Para ver todas as variáveis: `./k8s-lab-install-course.sh` sem argumento.
+
+### O que esperar da saída
+
+O script aguarda, nesta ordem: a CRD do Calico ficar disponível, o `Installation` ser criado, e o node ficar `Ready`. Se o node não ficar `Ready` em 300s, ele imprime os comandos de diagnóstico em vez de seguir em silêncio.
 
 Ao final será exibido um comando semelhante a:
 
@@ -150,6 +185,45 @@ kubeadm join 192.168.x.x:6443 --token ... --discovery-token-ca-cert-hash sha256:
 ```
 
 Guarde esse comando.
+
+### Se o CoreDNS ficar `Pending`
+
+```text
+0/1 nodes are available: 1 node(s) had untolerated taint(s)
+```
+
+**Isso quase nunca é problema do CoreDNS.** É o taint `node.kubernetes.io/not-ready:NoSchedule`, aplicado enquanto o node está `NotReady` — e o node fica `NotReady` até haver CNI. O CoreDNS tolera `control-plane:NoSchedule` e `not-ready:NoExecute`, mas **não** `not-ready:NoSchedule`.
+
+Ou seja: o problema é o Calico. Verifique nesta ordem:
+
+```bash
+kubectl get nodes
+kubectl get pods -n tigera-operator
+kubectl get installation default          # <- o passo que mais falha
+kubectl get pods -n calico-system
+```
+
+Se `kubectl get installation` retornar `No resources found`, o operator está rodando sem nada para reconciliar. Aplique o CR à mão:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+      - name: default-ipv4-ippool
+        blockSize: 26
+        cidr: 10.244.0.0/16
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+EOF
+```
+
+Em ~1 minuto o `calico-node` sobe, o node vira `Ready`, o taint sai e o CoreDNS é agendado sozinho.
 
 ---
 

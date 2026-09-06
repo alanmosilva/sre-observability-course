@@ -200,6 +200,70 @@ scaleDown:
 
 ---
 
+# 11. CoreDNS `Pending` logo após instalar o control-plane
+
+Sintoma:
+
+```text
+0/1 nodes are available: 1 node(s) had untolerated taint(s)
+```
+
+O taint é `node.kubernetes.io/not-ready:NoSchedule`, aplicado enquanto o node está `NotReady`. O CoreDNS tolera `control-plane:NoSchedule` e `not-ready:NoExecute`, mas **não** esse.
+
+E o node fica `NotReady` até existir CNI:
+
+```bash
+kubectl describe node | grep -A6 Conditions
+```
+
+```text
+Ready False KubeletNotReady: container runtime network not ready:
+  NetworkReady=false reason:NetworkPluginNotReady
+  message:Network plugin returns error: cni plugin not initialized
+```
+
+Então o problema é o **Calico**, não o CoreDNS. Verifique nesta ordem:
+
+```bash
+kubectl get pods -n tigera-operator     # o operator subiu?
+kubectl get installation default        # o CR existe?
+kubectl get pods -n calico-system       # o Calico foi criado?
+```
+
+O passo que mais falha é o do meio. Se retornar `No resources found`, o operator está rodando sem nada para reconciliar — e os logs dele repetem:
+
+```text
+Installation.operator.tigera.io "default" not found
+```
+
+Correção — aplique o CR à mão:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+      - name: default-ipv4-ippool
+        blockSize: 26
+        cidr: 10.244.0.0/16
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+EOF
+
+kubectl get pods -n calico-system -w
+```
+
+Em ~1 minuto: `calico-node` sai de `Init:1/3` para `Running`, o node vira `Ready`, o taint é removido e o CoreDNS é agendado sozinho.
+
+**Cuidado com a lição errada.** Se o taint que aparecer for `node-role.kubernetes.io/control-plane:NoSchedule`, aí sim é cluster de nó único sem workers — use `SINGLE_NODE=true` no script, ou remova à mão. São dois taints diferentes com sintoma idêntico.
+
+---
+
 # Método de troubleshooting
 
 Não pule direto para a hipótese favorita.
