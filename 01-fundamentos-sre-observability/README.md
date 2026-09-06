@@ -387,7 +387,7 @@ Isso é observabilidade funcionando de verdade.
 
 # 8. Ferramentas utilizadas neste curso
 
-A tabela abaixo apresenta as principais ferramentas do ecossistema que usamos ou discutimos.
+A tabela abaixo apresenta as principais ferramentas do ecossistema que usamos ou discutimos. Não utilizamos Jaeger e nem Datadog
 
 | Ferramenta | O que é de forma simples | Tipo de dado | Linguagem / consulta | Exemplo de uso |
 |---|---|---|---|---|
