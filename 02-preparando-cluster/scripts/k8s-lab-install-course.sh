@@ -46,6 +46,16 @@ POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 # kubeadm default; declared here so the MetalLB pool can be validated against it
 SERVICE_CIDR="${SERVICE_CIDR:-10.96.0.0/12}"
 
+# Cluster de no unico: o control-plane precisa aceitar workloads, senao todo
+# pod fica Pending por causa do taint node-role.kubernetes.io/control-plane.
+# Defina SINGLE_NODE=false se voce for adicionar workers depois.
+SINGLE_NODE="${SINGLE_NODE:-true}"
+
+# Endereco que o apiserver anuncia. Vazio = kubeadm escolhe pela rota default,
+# o que serve para a maioria dos servidores. Defina explicitamente se a maquina
+# tem varias interfaces e o kubeadm escolher a errada.
+APISERVER_ADVERTISE_ADDRESS="${APISERVER_ADVERTISE_ADDRESS:-}"
+
 CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 METALLB_VERSION="${METALLB_VERSION:-v0.16.1}"
 
@@ -367,6 +377,27 @@ EOF
 # ----------------------------
 # CONTROL PLANE
 # ----------------------------
+# Sem isto, em cluster de no unico todo pod fica Pending com
+# "node(s) had untolerated taint(s)" - inclusive o CoreDNS.
+remove_control_plane_taint() {
+  if [[ "${SINGLE_NODE}" != "true" ]]; then
+    log "SINGLE_NODE=false: mantendo o taint do control-plane"
+    return 0
+  fi
+
+  log "Removendo o taint do control-plane (SINGLE_NODE=true)"
+
+  # A chave mudou de 'master' para 'control-plane' no k8s 1.24; tenta as duas.
+  kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule- 2>/dev/null || true
+  kubectl taint nodes --all node-role.kubernetes.io/master:NoSchedule- 2>/dev/null || true
+
+  echo
+  echo "Taints restantes:"
+  kubectl get nodes -o jsonpath='{range .items[*]}  {.metadata.name}: {range .spec.taints[*]}{.key}={.value}:{.effect} {end}{"\n"}{end}' || true
+  echo
+  echo "Para reverter:  kubectl taint nodes --all node-role.kubernetes.io/control-plane=:NoSchedule"
+}
+
 init_master() {
   require_root
 
@@ -376,8 +407,15 @@ init_master() {
     echo "/etc/kubernetes/admin.conf already exists."
     echo "Skipping kubeadm init."
   else
-    kubeadm init \
-      --pod-network-cidr="${POD_CIDR}"
+    local init_args=(--pod-network-cidr="${POD_CIDR}")
+
+    # Em servidor com mais de uma interface o kubeadm pode escolher a errada.
+    if [[ -n "${APISERVER_ADVERTISE_ADDRESS}" ]]; then
+      init_args+=(--apiserver-advertise-address="${APISERVER_ADVERTISE_ADDRESS}")
+      log "apiserver advertise address: ${APISERVER_ADVERTISE_ADDRESS}"
+    fi
+
+    kubeadm init "${init_args[@]}"
   fi
 
   # Configure kubectl for the original sudo user
@@ -404,6 +442,15 @@ init_master() {
   # client-side last-applied-configuration annotation.
   kubectl apply --server-side --force-conflicts -f \
     "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+
+  # A CRD precisa estar Established antes do apply do CR, senao o kubectl
+  # responde 'no matches for kind Installation' e o operator fica para sempre
+  # repetindo 'Installation "default" not found' - sem CNI, sem node Ready.
+  log "Aguardando a CRD Installation ficar disponivel"
+
+  kubectl wait --for=condition=Established \
+    crd/installations.operator.tigera.io --timeout=120s \
+    || die "CRD installations.operator.tigera.io nao ficou Established. Verifique: kubectl get crd | grep tigera"
 
   kubectl wait \
     --namespace tigera-operator \
@@ -436,9 +483,26 @@ metadata:
 spec: {}
 EOF
 
+  # Sem o CR o operator nao instala nada, e o sintoma aparece bem depois,
+  # como CoreDNS Pending por 'untolerated taint'. Falhe aqui, nao la.
+  kubectl get installation default >/dev/null 2>&1 \
+    || die "O Installation CR nao foi criado. Reaplique manualmente e verifique: kubectl logs -n tigera-operator deploy/tigera-operator"
+
+  log "Installation aplicado com cidr=${POD_CIDR}"
+
   echo
   echo "Waiting for node readiness..."
-  kubectl wait --for=condition=Ready node --all --timeout=300s || true
+
+  if ! kubectl wait --for=condition=Ready node --all --timeout=300s; then
+    echo
+    echo "AVISO: o node nao ficou Ready em 300s."
+    echo "Diagnostique nesta ordem:"
+    echo "  kubectl get pods -n calico-system"
+    echo "  kubectl describe node | grep -A6 Conditions"
+    echo "  kubectl logs -n tigera-operator deploy/tigera-operator --tail=30"
+  fi
+
+  remove_control_plane_taint
 
   log "Control plane initialized"
 
@@ -1006,6 +1070,11 @@ Usage:
 Environment variables:
   K8S_MINOR=${K8S_MINOR}
   POD_CIDR=${POD_CIDR}
+  SINGLE_NODE=${SINGLE_NODE}
+      true  remove o taint do control-plane (padrao, cluster de no unico)
+      false mantem o taint (voce vai adicionar workers)
+  APISERVER_ADVERTISE_ADDRESS=${APISERVER_ADVERTISE_ADDRESS:-<auto>}
+      defina se a maquina tem varias interfaces
   CALICO_VERSION=${CALICO_VERSION}
   METALLB_VERSION=${METALLB_VERSION}
   METALLB_POOL=${METALLB_POOL}
