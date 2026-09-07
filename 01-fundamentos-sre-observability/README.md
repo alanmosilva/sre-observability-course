@@ -776,6 +776,10 @@ então podemos falhar:
 
 Esse `0.1%` é o **Error Budget**.
 
+Em um período de 30 dias, isso representa aproximadamente:
+
+43 minutos e 12 segundos de indisponibilidade
+
 Podemos pensar nele como:
 
 > "Quanto de falha ainda podemos tolerar sem violar nosso objetivo?"

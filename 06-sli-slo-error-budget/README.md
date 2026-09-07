@@ -71,6 +71,33 @@ Burn Rate   = 10x
 
 ## 1. Criar recording rules
 
+Recording rules deixam consultas complexas mais rápidas, reutilizáveis e padronizadas. Elas são muito úteis para SLIs, SLOs, dashboards e alertas.
+
+Exemplo: em vez de o Grafana calcular toda hora uma query grande de Availability:
+
+```text
+1 -
+(
+  sum(rate(sre_demo_http_requests_total{status=~"5.."}[5m]))
+  /
+  sum(rate(sre_demo_http_requests_total[5m]))
+)
+```
+
+você cria uma recording rule como:
+
+```text
+sre_demo:http_availability:ratio5m
+```
+
+Aí depois o dashboard, alerta ou outra regra consulta só:
+
+```text
+sre_demo:http_availability:ratio5m
+```
+
+Crie:
+
 ```bash
 kubectl apply -f sre-demo-sli.yaml
 ```

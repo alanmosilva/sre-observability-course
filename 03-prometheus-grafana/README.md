@@ -15,14 +15,6 @@ Instalar `kube-prometheus-stack` com:
 
 ---
 
-## Por que não usar a instalação padrão?
-
-No nosso laboratório original, Grafana foi instalado sem persistência. Ao recriar o Pod/stack, dashboards e configurações foram perdidos.
-
-Neste curso corrigimos isso **desde a primeira instalação**.
-
----
-
 ## 1. Criar namespace
 
 ```bash

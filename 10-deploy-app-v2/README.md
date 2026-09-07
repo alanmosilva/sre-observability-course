@@ -61,7 +61,7 @@ curl -s $BASE/exception
 
 ## 4. Validar Metrics
 
-Prometheus:
+Grafana Explore → Prometheus:
 
 ```promql
 sum(rate(sre_demo_http_requests_total[5m]))

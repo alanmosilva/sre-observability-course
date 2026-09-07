@@ -39,4 +39,4 @@ spec:
           annotations:
             summary: "sre-demo is rapidly burning its availability error budget"
             description: "Availability error budget burn rate is above 14.4x on both the 5m and 1h windows."
-            runbook: "runbooks/sre-demo-availability.md"
+            runbook_url: "https://github.com/alanmosilva/sre-observability-course/blob/main/14-incident-response/runbooks/sre-demo-availability.md"

@@ -225,7 +225,7 @@ done
 
 ## 11. Validar no Prometheus
 
-Abra Prometheus e execute:
+Abra no painel do Grafana > Explore > selecione Prometheus e execute:
 
 ```promql
 sre_demo_http_requests_total

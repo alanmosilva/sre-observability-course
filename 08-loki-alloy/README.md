@@ -16,19 +16,54 @@ Grafana
 
 ---
 
-## Loki
+## Loki — modos de deployment
 
-Loki é o backend de logs.
+Loki é o backend responsável por **receber, armazenar e consultar logs**.
 
-No laboratório usamos modo:
+Uma característica importante é que o Loki pode rodar de formas diferentes dependendo do tamanho e da criticidade do ambiente.
+
+Hoje existem três modos principais:
+
+| Modo | Como funciona | Quando usar |
+|---|---|---|
+| **Monolithic** | Todos os componentes do Loki rodam juntos em um único processo/binário. | Labs, ambientes pequenos e cenários simples. |
+| **Simple Scalable (SSD)** | Separa Loki em `read`, `write` e `backend`, permitindo escalar essas partes separadamente. | Ambientes intermediários, mas está sendo descontinuado. |
+| **Microservices / Distributed** | Cada componente do Loki roda como serviço separado. | Produção em larga escala, alta disponibilidade e necessidade de controle fino. |
+
+### 1. Monolithic
+
+No modo **Monolithic**, todos os componentes ficam dentro do mesmo processo:
 
 ```text
-Monolithic
+        Loki
+         │
+ ┌───────┼────────┐
+ │       │        │
+Write   Read   Backend
+
+No nosso laboratório usamos:
+
+deploymentMode: Monolithic
 filesystem
-replication_factor=1
+replication_factor: 1
+
+Ou seja:
+
+```text
+Alloy
+  ↓
+Loki
+  ↓
+disco local / filesystem
 ```
 
-Essa configuração é para laboratório, não para desenho de produção.
+Essa arquitetura é adequada para:
+
+aprendizado;
+laboratório;
+desenvolvimento;
+baixo volume de logs;
+ambientes onde perder dados não representa risco crítico.
 
 ---
 
@@ -51,7 +86,29 @@ container
 app
 node
 cluster
- environment
+environment
+```
+
+O Alloy pode coletar logs de qualquer aplicação, de todos os Pods de um namespace ou até do cluster inteiro. No nosso curso nós limitamos para sre-lab apenas para deixar o laboratório controlado.
+
+Se você quiser somente uma aplicação específica, por exemplo meuapp dentro do namespace meunamespace:
+
+```text
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    regex         = "meunamespace"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    regex         = "meuapp"
+    action        = "keep"
+  }
+}
 ```
 
 ---
