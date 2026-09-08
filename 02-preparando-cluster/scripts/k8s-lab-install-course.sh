@@ -46,8 +46,11 @@ POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 # kubeadm default; declared here so the MetalLB pool can be validated against it
 SERVICE_CIDR="${SERVICE_CIDR:-10.96.0.0/12}"
 
-# Cluster de no unico: o control-plane precisa aceitar workloads, senao todo
-# pod fica Pending por causa do taint node-role.kubernetes.io/control-plane.
+# Cluster de no unico. Quando true, remove DUAS marcas do control-plane:
+#   - o taint  node-role.kubernetes.io/control-plane:NoSchedule
+#     (sem isso nenhum pod agenda, nem o CoreDNS)
+#   - o label  node.kubernetes.io/exclude-from-external-load-balancers
+#     (sem isso o MetalLB nao anuncia, e o EXTERNAL-IP fica inalcancavel)
 # Defina SINGLE_NODE=false se voce for adicionar workers depois.
 SINGLE_NODE="${SINGLE_NODE:-true}"
 
@@ -377,25 +380,48 @@ EOF
 # ----------------------------
 # CONTROL PLANE
 # ----------------------------
-# Sem isto, em cluster de no unico todo pod fica Pending com
-# "node(s) had untolerated taint(s)" - inclusive o CoreDNS.
-remove_control_plane_taint() {
+# Cluster de no unico precisa de DUAS coisas, e elas sao independentes:
+#
+#   taint node-role.kubernetes.io/control-plane:NoSchedule
+#     -> impede pods de AGENDAR no node. Sem remover, tudo fica Pending
+#        com "node(s) had untolerated taint(s)", inclusive o CoreDNS.
+#
+#   label node.kubernetes.io/exclude-from-external-load-balancers
+#     -> impede o MetalLB de ANUNCIAR pelo node. Sem remover, os pods
+#        rodam normalmente mas o EXTERNAL-IP fica inalcancavel de fora:
+#        servicel2status vazio, zero serviceAnnounced, e nenhuma resposta
+#        de ARP na LAN. Do proprio node o curl funciona (kube-proxy local),
+#        o que torna o sintoma confuso.
+#
+# Remover so o taint faz os pods subirem e da a impressao de que esta tudo
+# certo - ate voce tentar abrir o Ingress pelo navegador.
+prepare_single_node() {
   if [[ "${SINGLE_NODE}" != "true" ]]; then
-    log "SINGLE_NODE=false: mantendo o taint do control-plane"
+    log "SINGLE_NODE=false: mantendo taint e label do control-plane"
     return 0
   fi
 
-  log "Removendo o taint do control-plane (SINGLE_NODE=true)"
+  log "Preparando node unico: removendo taint e label do control-plane"
 
   # A chave mudou de 'master' para 'control-plane' no k8s 1.24; tenta as duas.
   kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule- 2>/dev/null || true
   kubectl taint nodes --all node-role.kubernetes.io/master:NoSchedule- 2>/dev/null || true
 
+  kubectl label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- 2>/dev/null || true
+
   echo
   echo "Taints restantes:"
   kubectl get nodes -o jsonpath='{range .items[*]}  {.metadata.name}: {range .spec.taints[*]}{.key}={.value}:{.effect} {end}{"\n"}{end}' || true
+
   echo
-  echo "Para reverter:  kubectl taint nodes --all node-role.kubernetes.io/control-plane=:NoSchedule"
+  echo "Nodes elegiveis para LoadBalancer:"
+  kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.node\.kubernetes\.io/exclude-from-external-load-balancers}{"\n"}{end}' 2>/dev/null \
+    | awk -F'\t' '{ if ($2 == "") print "  "$1"  OK"; else print "  "$1"  EXCLUIDO" }' || true
+
+  echo
+  echo "Para reverter:"
+  echo "  kubectl taint nodes --all node-role.kubernetes.io/control-plane=:NoSchedule"
+  echo "  kubectl label nodes --all node.kubernetes.io/exclude-from-external-load-balancers=\"\""
 }
 
 init_master() {
@@ -502,7 +528,7 @@ EOF
     echo "  kubectl logs -n tigera-operator deploy/tigera-operator --tail=30"
   fi
 
-  remove_control_plane_taint
+  prepare_single_node
 
   log "Control plane initialized"
 
@@ -606,6 +632,40 @@ spec:
   ipAddressPools:
     - default-pool
 EOF
+
+  validate_metallb_eligible_nodes
+}
+
+# O MetalLB so anuncia a partir de nodes SEM o label
+# node.kubernetes.io/exclude-from-external-load-balancers, que o kubeadm aplica
+# em todo control-plane. Se todos estiverem excluidos, o Service recebe
+# EXTERNAL-IP mas ninguem responde ARP na LAN - e o sintoma engana, porque do
+# proprio node o curl funciona (kube-proxy trata localmente).
+validate_metallb_eligible_nodes() {
+  local total elegiveis
+
+  total="$(kubectl get nodes --no-headers 2>/dev/null | wc -l)"
+  elegiveis="$(kubectl get nodes \
+    -l '!node.kubernetes.io/exclude-from-external-load-balancers' \
+    --no-headers 2>/dev/null | wc -l)"
+
+  echo
+  echo "Nodes elegiveis para anunciar LoadBalancer: ${elegiveis}/${total}"
+
+  if [[ "${elegiveis}" -eq 0 ]]; then
+    echo
+    echo "AVISO: nenhum node pode anunciar o EXTERNAL-IP."
+    echo "Todos tem o label node.kubernetes.io/exclude-from-external-load-balancers,"
+    echo "aplicado pelo kubeadm em nodes control-plane."
+    echo
+    echo "Sintoma: o Service recebe EXTERNAL-IP, mas nada na rede o alcanca."
+    echo "         'kubectl get servicel2status -A' fica vazio."
+    echo
+    echo "Correcao:"
+    echo "  kubectl label nodes --all node.kubernetes.io/exclude-from-external-load-balancers-"
+    echo
+    echo "Ou rode o master com SINGLE_NODE=true, que ja faz isso."
+  fi
 }
 
 # ----------------------------
@@ -1071,8 +1131,8 @@ Environment variables:
   K8S_MINOR=${K8S_MINOR}
   POD_CIDR=${POD_CIDR}
   SINGLE_NODE=${SINGLE_NODE}
-      true  remove o taint do control-plane (padrao, cluster de no unico)
-      false mantem o taint (voce vai adicionar workers)
+      true  remove o taint E o label exclude-from-external-load-balancers
+      false mantem os dois (voce vai adicionar workers)
   APISERVER_ADVERTISE_ADDRESS=${APISERVER_ADVERTISE_ADDRESS:-<auto>}
       defina se a maquina tem varias interfaces
   CALICO_VERSION=${CALICO_VERSION}
