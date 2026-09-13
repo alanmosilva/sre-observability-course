@@ -178,7 +178,7 @@ kubectl run smtp-test \
   --rm -it \
   --restart=Never \
   --image=nicolaka/netshoot -- \
-  nc -vz email-smtp.sa-east-1.amazonaws.com 587
+  nc -vz email-smtp.us-east-1.amazonaws.com 587
 ```
 
 Se TCP falha, credenciais não são o primeiro problema.

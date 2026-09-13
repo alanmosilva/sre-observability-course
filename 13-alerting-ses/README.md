@@ -13,7 +13,7 @@ Prometheus
    ↓
 Alertmanager
    ↓ SMTP/TLS
-AWS SES sa-east-1
+AWS SES us-east-1
    ↓
 E-mail
 ```
@@ -84,7 +84,7 @@ kubectl run smtp-test \
   --rm -it \
   --restart=Never \
   --image=nicolaka/netshoot -- \
-  nc -vz email-smtp.sa-east-1.amazonaws.com 587
+  nc -vz email-smtp.us-east-1.amazonaws.com 587
 ```
 
 Esperado:

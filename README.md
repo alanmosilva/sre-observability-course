@@ -197,7 +197,7 @@ Além disso:
 - Docker Hub: `alanmosilva/sre-demo`
 - Kubernetes: `v1.35`
 - Pod CIDR: `10.244.0.0/16`
-- AWS Region: `sa-east-1`
+- AWS Region: `us-east-1`
 
 ---
 

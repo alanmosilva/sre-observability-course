@@ -24,7 +24,7 @@ spec:
       emailConfigs:
         - to: "<ALERT_DESTINATION_EMAIL>"
           from: "<SES_VERIFIED_FROM_EMAIL>"
-          smarthost: "email-smtp.sa-east-1.amazonaws.com:587"
+          smarthost: "email-smtp.us-east-1.amazonaws.com:587"
           authUsername: "<SES_SMTP_USERNAME>"
           authPassword:
             name: aws-ses-smtp

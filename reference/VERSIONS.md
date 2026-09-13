@@ -14,7 +14,7 @@ Tempo                    3.0.2
 OTel Collector Contrib   0.159.0
 OpenTelemetry Python     1.44.0
 Flask instrumentation    0.65b0
-AWS Region               sa-east-1
+AWS Region               us-east-1
 ```
 
 O Loki/Alloy são instalados pelo chart Grafana usando os values fornecidos no curso.
